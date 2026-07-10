@@ -1,5 +1,5 @@
 from app.extensions import db
-from app.models import Content, DeviceAction, VenueDevice
+from app.models import Content, DeviceAction, DeviceSync, VenueDevice
 
 
 def test_health(client):
@@ -44,9 +44,19 @@ def test_operator_authorization_and_action(app, client, member_headers, operator
     devices = client.get("/api/v1/operator/devices", headers=operator_headers)
     assert devices.status_code == 200
     device_id = devices.get_json()["data"][0]["id"]
-    created = client.post("/api/v1/operator/devices/actions", json={"device_id": device_id, "action": "refresh_catalog", "payload": {"force": True}}, headers=operator_headers)
+    created = client.post("/api/v1/operator/devices/actions", json={"device_ids": [device_id], "action": "refresh_catalog", "payload": {"force": True}}, headers=operator_headers)
     assert created.status_code == 201
     with app.app_context():
-        action = db.session.get(DeviceAction, created.get_json()["data"]["id"])
+        action = db.session.get(DeviceAction, created.get_json()["data"]["actions"][0]["id"])
         assert action.status == "pending"
         assert db.session.get(VenueDevice, device_id) is not None
+
+
+def test_operator_can_sync_fleet(app, client, operator_headers):
+    devices = client.get("/api/v1/operator/devices", headers=operator_headers).get_json()["data"]
+    device_ids = [device["id"] for device in devices]
+    response = client.post("/api/v1/operator/sync", json={"device_ids": device_ids, "payload": {"content_id": 1}}, headers=operator_headers)
+    assert response.status_code == 201
+    assert response.get_json()["data"]["synced"] == len(device_ids)
+    with app.app_context():
+        assert len(db.session.scalars(db.select(DeviceSync)).all()) == len(device_ids)

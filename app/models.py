@@ -159,8 +159,11 @@ class VenueDevice(TimestampMixin, db.Model):
     id: Mapped[int] = mapped_column(primary_key=True)
     device_key: Mapped[str] = mapped_column(db.String(100), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(db.String(120), nullable=False)
+    headset_model: Mapped[str | None] = mapped_column(db.String(80))
     status: Mapped[str] = mapped_column(db.String(20), default="offline", nullable=False)
     app_version: Mapped[str | None] = mapped_column(db.String(40))
+    battery_level: Mapped[int | None]
+    ip_address: Mapped[str | None] = mapped_column(db.String(45))
     last_seen_at: Mapped[datetime | None]
     venue_id: Mapped[int] = mapped_column(db.ForeignKey("venues.id"), nullable=False)
     venue: Mapped[Venue] = relationship(back_populates="devices")

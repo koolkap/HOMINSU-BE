@@ -11,7 +11,7 @@ def app():
         "TESTING": True,
         "SQLALCHEMY_DATABASE_URI": "sqlite+pysqlite:///:memory:",
         "SQLALCHEMY_ENGINE_OPTIONS": {},
-        "JWT_SECRET_KEY": "test-secret-key",
+        "JWT_SECRET_KEY": "hominsu-test-secret-key-32-bytes-minimum",
         "CORS_ORIGINS": ["http://localhost"],
     })
     with app.app_context():

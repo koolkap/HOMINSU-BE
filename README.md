@@ -17,8 +17,6 @@ flask seed
 flask run --debug
 ```
 
-If no migration is available during development, initialize an empty database with `flask shell` and `db.create_all()`. Normal environments should use `flask db upgrade`.
-
 Development credentials:
 
 | Role | Email | Password |

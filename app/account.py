@@ -16,21 +16,28 @@ def wallet_data(wallet: Wallet) -> dict:
     return {"id": wallet.id, "points_balance": wallet.points_balance, "cash_balance": str(wallet.cash_balance)}
 
 
+def active_user_or_error():
+    user = current_user()
+    if not user or not user.is_active:
+        return None, error_response("authentication_required", "A valid active account is required.", 401)
+    return user, None
+
+
 @bp.get("/me")
 @jwt_required()
 def me():
-    user = current_user()
-    if not user or not user.is_active:
-        return error_response("authentication_required", "A valid active account is required.", 401)
+    user, error = active_user_or_error()
+    if error:
+        return error
     return jsonify({"data": serialize_user(user)})
 
 
 @bp.get("/wallet")
 @jwt_required()
 def wallet():
-    user = current_user()
-    if not user or not user.is_active:
-        return error_response("authentication_required", "A valid active account is required.", 401)
+    user, error = active_user_or_error()
+    if error:
+        return error
     return jsonify({"data": wallet_data(user.wallet)})
 
 
@@ -43,7 +50,9 @@ def packages():
 @bp.post("/wallet/topups")
 @jwt_required()
 def topup():
-    user = current_user()
+    user, error = active_user_or_error()
+    if error:
+        return error
     body = request.get_json(silent=True) or {}
     package_id = body.get("package_id")
     reference = str(body.get("reference", "")).strip()
@@ -66,7 +75,9 @@ def topup():
 @bp.post("/content/<int:content_id>/unlock")
 @jwt_required()
 def unlock(content_id: int):
-    user = current_user()
+    user, error = active_user_or_error()
+    if error:
+        return error
     body = request.get_json(silent=True) or {}
     method = body.get("method")
     if method not in {"ad", "points", "cash"}:

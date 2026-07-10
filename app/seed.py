@@ -38,8 +38,8 @@ def seed_database() -> None:
     ]
     venue = Venue(code="SEOUL-DEMO", name="서울 VR 체험관", address="서울특별시 종로구")
     devices = [
-        VenueDevice(device_key="SEOUL-HMD-01", name="VR 헤드셋 1", status="online", app_version="1.0.0", last_seen_at=utcnow(), venue=venue),
-        VenueDevice(device_key="SEOUL-HMD-02", name="VR 헤드셋 2", status="offline", app_version="1.0.0", venue=venue),
+        VenueDevice(device_key="SEOUL-HMD-01", name="VR 헤드셋 1", headset_model="Meta Quest 3", status="online", app_version="1.0.0", battery_level=86, ip_address="10.10.0.21", last_seen_at=utcnow(), venue=venue),
+        VenueDevice(device_key="SEOUL-HMD-02", name="VR 헤드셋 2", headset_model="PICO 4 Enterprise", status="offline", app_version="1.0.0", battery_level=24, ip_address="10.10.0.22", venue=venue),
     ]
     db.session.add_all([member, operator, admin, travel, culture, nature, creator, guest, *contents, live, *packages, venue, *devices])
     db.session.commit()
