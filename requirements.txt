@@ -3,6 +3,8 @@ Flask-SQLAlchemy==3.1.1
 Flask-Migrate==4.1.0
 Flask-Cors==6.0.1
 Flask-JWT-Extended==4.7.1
+asgiref==3.8.1
 psycopg[binary]==3.2.9
 python-dotenv==1.1.1
+uvicorn[standard]==0.35.0
 pytest==8.4.1

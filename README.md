@@ -2,12 +2,15 @@
 
 Flask API for HOMINSU's VR catalog, wallets, content access, live streams, and venue device operations.
 
-## Ubuntu setup
+## Setup
 
-The application requires Python 3.12 and PostgreSQL. The commands below install
-PostgreSQL directly on Ubuntu; Docker is not required.
+The application requires Python 3.12 and PostgreSQL. PostgreSQL runs directly on
+the host operating system; Docker is not required. Uvicorn serves the Flask API
+through the ASGI adapter defined in `asgi.py`.
 
-### 1. Install system packages
+### Ubuntu
+
+#### 1. Install system packages
 
 ```bash
 sudo apt update
@@ -16,7 +19,7 @@ sudo systemctl enable --now postgresql
 sudo systemctl status postgresql --no-pager
 ```
 
-### 2. Create the PostgreSQL role and database
+#### 2. Create the PostgreSQL role and database
 
 Open the PostgreSQL shell as its system administrator:
 
@@ -42,7 +45,7 @@ Verify that the new account can connect:
 PGPASSWORD=hominsu_dev_password psql -h localhost -U hominsu -d hominsu -c 'SELECT current_database(), current_user;'
 ```
 
-### 3. Configure and install the API
+#### 3. Configure and install the API
 
 From the backend repository:
 
@@ -68,7 +71,7 @@ For example:
 sed -i "s|replace-with-a-long-random-development-secret|$(openssl rand -hex 32)|" .env
 ```
 
-### 4. Apply migrations and seed data
+#### 4. Apply migrations and seed data
 
 ```bash
 source .venv/bin/activate
@@ -79,11 +82,20 @@ flask seed
 The seed command creates demonstration content, point packages, devices, and the
 local accounts listed below.
 
-### 5. Start the API
+#### 5. Start the API
+
+For development with automatic reload:
 
 ```bash
 source .venv/bin/activate
-flask run --debug --host 0.0.0.0 --port 5000
+uvicorn asgi:app --host 0.0.0.0 --port 5000 --reload
+```
+
+For a server process without the development reloader:
+
+```bash
+source .venv/bin/activate
+uvicorn asgi:app --host 0.0.0.0 --port 5000 --workers 4
 ```
 
 Verify the service from another terminal:
@@ -105,6 +117,130 @@ sudo systemctl status postgresql --no-pager
 sudo journalctl -u postgresql --since "10 minutes ago"
 ```
 
+### Windows
+
+#### 1. Install Python and PostgreSQL
+
+Install Python 3.12 from [python.org](https://www.python.org/downloads/windows/)
+or with Windows Package Manager:
+
+```powershell
+winget install --exact --id Python.Python.3.12
+```
+
+Install PostgreSQL using the Windows installer from
+[postgresql.org](https://www.postgresql.org/download/windows/). During setup:
+
+1. Keep the default port `5432`.
+2. Set and retain the password for the built-in `postgres` administrator.
+3. Install the PostgreSQL command-line tools.
+4. Add the PostgreSQL `bin` directory to `PATH` if the installer does not do so.
+
+The default command-line tools directory is similar to
+`C:\Program Files\PostgreSQL\17\bin`. The version number may differ.
+
+Open a new PowerShell window and verify both installations:
+
+```powershell
+py -3.12 --version
+psql --version
+Get-Service postgresql*
+```
+
+If `psql` is not in `PATH`, invoke it using its full path, for example:
+
+```powershell
+& "C:\Program Files\PostgreSQL\17\bin\psql.exe" --version
+```
+
+#### 2. Create the PostgreSQL role and database
+
+Connect using the administrator password selected during PostgreSQL setup:
+
+```powershell
+psql -U postgres -h localhost
+```
+
+Run the following SQL:
+
+```sql
+CREATE USER hominsu WITH PASSWORD 'hominsu_dev_password';
+CREATE DATABASE hominsu OWNER hominsu;
+GRANT ALL PRIVILEGES ON DATABASE hominsu TO hominsu;
+\q
+```
+
+Verify the application account from PowerShell:
+
+```powershell
+$env:PGPASSWORD = "hominsu_dev_password"
+psql -h localhost -U hominsu -d hominsu -c "SELECT current_database(), current_user;"
+Remove-Item Env:PGPASSWORD
+```
+
+#### 3. Configure and install the API
+
+From the backend repository:
+
+```powershell
+Set-Location C:\path\to\HOMINSU-BE
+Copy-Item .env.example .env
+py -3.12 -m venv .venv
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+The development database URL in `.env` should be:
+
+```text
+postgresql+psycopg://hominsu:hominsu_dev_password@localhost:5432/hominsu
+```
+
+Open `.env` and replace `JWT_SECRET_KEY` with a long random value:
+
+```powershell
+notepad .env
+```
+
+#### 4. Apply migrations and seed data
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+flask db upgrade
+flask seed
+```
+
+#### 5. Start the API
+
+For development with automatic reload:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+uvicorn asgi:app --host 0.0.0.0 --port 5000 --reload
+```
+
+For a server process without the development reloader:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+uvicorn asgi:app --host 0.0.0.0 --port 5000 --workers 4
+```
+
+Verify the API from another PowerShell window:
+
+```powershell
+Invoke-RestMethod http://localhost:5000/health
+```
+
+If PostgreSQL is not running, inspect and start its Windows service:
+
+```powershell
+Get-Service postgresql*
+Get-Service postgresql* | Start-Service
+```
+
 Development credentials:
 
 | Role | Email | Password |
@@ -117,12 +253,30 @@ These credentials and secrets are for local development only.
 
 ## Commands
 
+Ubuntu:
+
 ```bash
 source .venv/bin/activate
 flask db upgrade
 flask seed
 pytest
+uvicorn asgi:app --host 0.0.0.0 --port 5000 --reload
 ```
+
+Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+flask db upgrade
+flask seed
+pytest
+uvicorn asgi:app --host 0.0.0.0 --port 5000 --reload
+```
+
+Run migrations and seed commands before starting multiple Uvicorn workers. The
+workers must not execute migrations automatically. In production, place Uvicorn
+behind a reverse proxy such as Nginx or a managed load balancer for TLS and
+request-size controls.
 
 ## API
 
