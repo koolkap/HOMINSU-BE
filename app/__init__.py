@@ -25,11 +25,13 @@ def create_app(config_object=None) -> Flask:
     from .auth import bp as auth_bp
     from .catalog import bp as catalog_bp
     from .operator import bp as operator_bp
+    from .uploads import bp as uploads_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
     app.register_blueprint(catalog_bp, url_prefix="/api/v1")
     app.register_blueprint(account_bp, url_prefix="/api/v1")
     app.register_blueprint(operator_bp, url_prefix="/api/v1")
+    app.register_blueprint(uploads_bp, url_prefix="/api/v1")
     app.register_blueprint(
         get_swaggerui_blueprint(
             "/docs",

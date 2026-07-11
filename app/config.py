@@ -23,4 +23,9 @@ class Config:
         for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",")
         if origin.strip()
     ]
+    SUPABASE_URL = os.getenv("SUPABASE_URL")
+    SUPABASE_SECRET_KEY = os.getenv("SUPABASE_SECRET_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    SUPABASE_STORAGE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "hominsu")
+    STORAGE_MAX_FILE_SIZE = int(os.getenv("STORAGE_MAX_FILE_SIZE", str(50 * 1024 * 1024)))
+    MAX_CONTENT_LENGTH = STORAGE_MAX_FILE_SIZE + 1024 * 1024
     JSON_SORT_KEYS = False

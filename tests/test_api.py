@@ -1,3 +1,5 @@
+from io import BytesIO
+
 from app.extensions import db
 from app.models import Content, DeviceAction, DeviceSync, VenueDevice
 
@@ -20,6 +22,7 @@ def test_openapi_spec_and_swagger_ui(client):
     assert spec.status_code == 200
     assert spec.get_json()["info"]["title"] == "HOMINSU REST API"
     assert "/api/v1/auth/login" in spec.get_json()["paths"]
+    assert "/api/v1/storage/upload" in spec.get_json()["paths"]
     docs = client.get("/docs/")
     assert docs.status_code == 200
     assert b"HOMINSU REST API" in docs.data
@@ -77,3 +80,74 @@ def test_operator_can_sync_fleet(app, client, operator_headers):
     assert response.get_json()["data"]["synced"] == len(device_ids)
     with app.app_context():
         assert len(db.session.scalars(db.select(DeviceSync)).all()) == len(device_ids)
+
+
+class FakeStorageBucket:
+    def __init__(self):
+        self.uploads = []
+
+    def upload(self, path, payload, file_options):
+        self.uploads.append((path, payload, file_options))
+
+    def get_public_url(self, path):
+        return f"https://storage.example/{path}"
+
+
+class FakeStorage:
+    def __init__(self, bucket):
+        self.bucket = bucket
+        self.requested_bucket = None
+
+    def from_(self, name):
+        self.requested_bucket = name
+        return self.bucket
+
+
+class FakeSupabase:
+    def __init__(self):
+        self.bucket = FakeStorageBucket()
+        self.storage = FakeStorage(self.bucket)
+
+
+def test_upload_requires_operator(client, member_headers):
+    file_data = {"file": (BytesIO(b"video"), "tour.mp4", "video/mp4")}
+    assert client.post("/api/v1/storage/upload", data=file_data).status_code == 401
+    file_data = {"file": (BytesIO(b"video"), "tour.mp4", "video/mp4")}
+    assert client.post("/api/v1/storage/upload", data=file_data, headers=member_headers).status_code == 403
+
+
+def test_operator_uploads_media_to_supabase(app, client, operator_headers):
+    fake = FakeSupabase()
+    app.extensions["supabase"] = fake
+    response = client.post(
+        "/api/v1/storage/upload",
+        data={"file": (BytesIO(b"video"), "../../tour.mp4", "video/mp4")},
+        headers=operator_headers,
+    )
+    assert response.status_code == 201
+    data = response.get_json()["data"]
+    assert fake.storage.requested_bucket == "hominsu"
+    assert data["path"].startswith("uploads/2/")
+    assert data["path"].endswith(".mp4")
+    assert "tour" not in data["path"]
+    assert data["size"] == 5
+    assert fake.bucket.uploads[0][2]["content-type"] == "video/mp4"
+
+
+def test_upload_validates_type_and_size(app, client, operator_headers):
+    app.extensions["supabase"] = FakeSupabase()
+    invalid = client.post(
+        "/api/v1/storage/upload",
+        data={"file": (BytesIO(b"text"), "page.html", "text/html")},
+        headers=operator_headers,
+    )
+    assert invalid.status_code == 400
+
+    app.config["STORAGE_MAX_FILE_SIZE"] = 4
+    oversized = client.post(
+        "/api/v1/storage/upload",
+        data={"file": (BytesIO(b"video"), "tour.mp4", "video/mp4")},
+        headers=operator_headers,
+    )
+    assert oversized.status_code == 413
+    assert oversized.get_json()["error"]["code"] == "request_entity_too_large"

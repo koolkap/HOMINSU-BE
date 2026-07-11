@@ -16,6 +16,7 @@ OPENAPI_SPEC = {
         {"name": "Authentication", "description": "Login and JWT access"},
         {"name": "Catalog", "description": "VR content and live streams"},
         {"name": "Account", "description": "Profile, wallet, and purchases"},
+        {"name": "Creator", "description": "VR Studio media uploads"},
         {"name": "Operator", "description": "Venue headset fleet control"},
     ],
     "paths": {
@@ -138,6 +139,28 @@ OPENAPI_SPEC = {
                 "operationId": "syncDevices", "security": [{"BearerAuth": []}],
                 "requestBody": {"required": True, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeviceSyncRequest"}, "example": {"device_ids": [1, 2], "payload": {"content_id": 1, "position_seconds": 0}}}}},
                 "responses": {"201": {"description": "Synchronization accepted"}, "403": {"$ref": "#/components/responses/Forbidden"}},
+            }
+        },
+        "/api/v1/storage/upload": {
+            "post": {
+                "tags": ["Creator"], "summary": "Upload VR Studio media to Supabase Storage",
+                "operationId": "uploadMedia", "security": [{"BearerAuth": []}],
+                "requestBody": {
+                    "required": True,
+                    "content": {"multipart/form-data": {"schema": {
+                        "type": "object", "required": ["file"],
+                        "properties": {"file": {"type": "string", "format": "binary"}},
+                    }}},
+                },
+                "responses": {
+                    "201": {"description": "Media uploaded"},
+                    "400": {"$ref": "#/components/responses/ValidationError"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "413": {"description": "The file exceeds 50 MiB"},
+                    "502": {"description": "Supabase Storage rejected the upload"},
+                    "503": {"description": "Storage is not configured"},
+                },
             }
         },
     },
