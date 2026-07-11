@@ -1,10 +1,12 @@
 import click
 from flask import Flask, jsonify
 from flask_jwt_extended import JWTManager
+from flask_swagger_ui import get_swaggerui_blueprint
 
 from .config import Config
 from .errors import error_response, register_error_handlers
 from .extensions import cors, db, jwt, migrate
+from .openapi import OPENAPI_SPEC
 
 
 def create_app(config_object=None) -> Flask:
@@ -28,6 +30,30 @@ def create_app(config_object=None) -> Flask:
     app.register_blueprint(catalog_bp, url_prefix="/api/v1")
     app.register_blueprint(account_bp, url_prefix="/api/v1")
     app.register_blueprint(operator_bp, url_prefix="/api/v1")
+    app.register_blueprint(
+        get_swaggerui_blueprint(
+            "/docs",
+            "/openapi.json",
+            config={"app_name": "HOMINSU REST API", "persistAuthorization": True},
+        ),
+        url_prefix="/docs",
+    )
+
+    @app.get("/openapi.json")
+    def openapi():
+        return jsonify(OPENAPI_SPEC)
+
+    @app.get("/")
+    @app.get("/api/v1")
+    def index():
+        return jsonify({"data": {
+            "name": "HOMINSU API",
+            "status": "ok",
+            "version": "v1",
+            "health": "/health",
+            "api_base": "/api/v1",
+            "docs": "/docs/",
+        }})
 
     @app.get("/health")
     def health():

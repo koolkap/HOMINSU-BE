@@ -101,6 +101,7 @@ uvicorn asgi:app --host 0.0.0.0 --port 5000 --workers 4
 Verify the service from another terminal:
 
 ```bash
+curl http://localhost:5000/
 curl http://localhost:5000/health
 ```
 
@@ -231,6 +232,7 @@ uvicorn asgi:app --host 0.0.0.0 --port 5000 --workers 4
 Verify the API from another PowerShell window:
 
 ```powershell
+Invoke-RestMethod http://localhost:5000/
 Invoke-RestMethod http://localhost:5000/health
 ```
 
@@ -277,6 +279,46 @@ Run migrations and seed commands before starting multiple Uvicorn workers. The
 workers must not execute migrations automatically. In production, place Uvicorn
 behind a reverse proxy such as Nginx or a managed load balancer for TLS and
 request-size controls.
+
+After Uvicorn starts, the available entry URLs are:
+
+| URL | Purpose |
+| --- | --- |
+| `http://localhost:5000/` | API service information |
+| `http://localhost:5000/health` | Health check |
+| `http://localhost:5000/api/v1` | Versioned API information |
+| `http://localhost:5000/api/v1/content` | Public content catalog |
+| `http://localhost:5000/docs/` | Interactive Swagger UI |
+| `http://localhost:5000/openapi.json` | Raw OpenAPI specification |
+
+A JSON `not_found` response means Uvicorn is reachable but the requested path
+does not match a registered API route. Confirm the URL against the API table
+below.
+
+## Swagger API testing
+
+Start Uvicorn and open the interactive documentation in a browser:
+
+```text
+http://localhost:5000/docs/
+```
+
+Swagger displays every API name, HTTP method, path parameter, query parameter,
+request body, and example payload. Select an endpoint, select **Try it out**, fill
+in the values, and select **Execute** to call the running API.
+
+To test protected account endpoints:
+
+1. Open `POST /api/v1/auth/login`.
+2. Select **Try it out** and use `member@hominsu.local` / `member1234`.
+3. Copy `data.access_token` from the response without adding quotes.
+4. Select **Authorize** at the top of Swagger.
+5. Paste the token into the Bearer authorization field and select **Authorize**.
+
+Use `operator@hominsu.local` / `operator1234` when testing endpoints under the
+Operator section. Swagger retains the authorization token while the page remains
+open. The raw machine-readable specification is available at
+`http://localhost:5000/openapi.json`.
 
 ## API
 

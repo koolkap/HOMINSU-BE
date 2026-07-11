@@ -8,6 +8,23 @@ def test_health(client):
     assert response.get_json() == {"data": {"status": "ok"}}
 
 
+def test_service_index(client):
+    response = client.get("/")
+    assert response.status_code == 200
+    assert response.get_json()["data"]["api_base"] == "/api/v1"
+    assert client.get("/api/v1").status_code == 200
+
+
+def test_openapi_spec_and_swagger_ui(client):
+    spec = client.get("/openapi.json")
+    assert spec.status_code == 200
+    assert spec.get_json()["info"]["title"] == "HOMINSU REST API"
+    assert "/api/v1/auth/login" in spec.get_json()["paths"]
+    docs = client.get("/docs/")
+    assert docs.status_code == 200
+    assert b"HOMINSU REST API" in docs.data
+
+
 def test_catalog_categories_and_content_filter(client):
     categories = client.get("/api/v1/catalog/categories")
     assert categories.status_code == 200
