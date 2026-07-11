@@ -74,12 +74,15 @@ def get_s3_client():
     return client
 
 
-def has_s3_configuration() -> bool:
-    return all(current_app.config.get(name) for name in (
-        "S3_ENDPOINT_URL",
-        "S3_ACCESS_KEY_ID",
-        "S3_SECRET_ACCESS_KEY",
-    ))
+def storage_provider() -> str:
+    configured = current_app.config.get("STORAGE_PROVIDER", "auto")
+    if configured not in {"auto", "s3", "supabase"}:
+        raise StorageConfigurationError("STORAGE_PROVIDER must be 's3', 'supabase', or 'auto'.")
+    if configured != "auto":
+        return configured
+    if current_app.config.get("S3_ACCESS_KEY_ID") or current_app.config.get("S3_SECRET_ACCESS_KEY"):
+        return "s3"
+    return "supabase"
 
 
 def public_storage_url(bucket_name: str, object_path: str) -> str:
@@ -116,11 +119,12 @@ def upload_file():
         return error_response("request_entity_too_large", "Files may not exceed 50 MiB.", 413)
 
     user = current_user()
-    bucket_name = current_app.config["S3_BUCKET"] if has_s3_configuration() else current_app.config["SUPABASE_STORAGE_BUCKET"]
     object_path = f"uploads/{user.id}/{uuid4().hex}{suffix}"
 
     try:
-        if has_s3_configuration():
+        provider = storage_provider()
+        if provider == "s3":
+            bucket_name = current_app.config["S3_BUCKET"]
             get_s3_client().put_object(
                 Bucket=bucket_name,
                 Key=object_path,
@@ -129,8 +133,8 @@ def upload_file():
                 CacheControl="public, max-age=3600",
             )
             public_url = public_storage_url(bucket_name, object_path)
-            provider = "s3"
         else:
+            bucket_name = current_app.config["SUPABASE_STORAGE_BUCKET"]
             bucket = get_supabase_client().storage.from_(bucket_name)
             bucket.upload(
                 object_path,
@@ -142,7 +146,6 @@ def upload_file():
                 },
             )
             public_url = bucket.get_public_url(object_path)
-            provider = "supabase"
     except StorageConfigurationError as error:
         logger.error("Storage configuration error: %s", error)
         return error_response("storage_unavailable", str(error), 503)

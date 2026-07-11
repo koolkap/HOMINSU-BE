@@ -172,6 +172,25 @@ def test_operator_uploads_media_with_s3_credentials(app, client, operator_header
     assert fake.objects[0]["ContentType"] == "video/mp4"
 
 
+def test_explicit_s3_provider_reports_missing_railway_variables(app, client, operator_headers):
+    app.config.update({
+        "STORAGE_PROVIDER": "s3",
+        "S3_ENDPOINT_URL": None,
+        "S3_ACCESS_KEY_ID": None,
+        "S3_SECRET_ACCESS_KEY": None,
+    })
+    response = client.post(
+        "/api/v1/storage/upload",
+        data={"file": (BytesIO(b"video"), "tour.mp4", "video/mp4")},
+        headers=operator_headers,
+    )
+    assert response.status_code == 503
+    message = response.get_json()["error"]["message"]
+    assert "AWS_ENDPOINT_URL_S3" in message
+    assert "AWS_ACCESS_KEY_ID" in message
+    assert "AWS_SECRET_ACCESS_KEY" in message
+
+
 def test_upload_validates_type_and_size(app, client, operator_headers):
     app.extensions["supabase"] = FakeSupabase()
     invalid = client.post(
