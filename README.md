@@ -2,6 +2,11 @@
 
 Flask API for HOMINSU's VR catalog, wallets, content access, live streams, and venue device operations.
 
+## Complete usage guides
+
+- [English guide](HOW_TO_USE_EN.md)
+- [한국어 사용 안내서](HOW_TO_USE_KO.md)
+
 ## Setup
 
 The application requires Python 3.12 and PostgreSQL. PostgreSQL runs directly on
