@@ -1,4 +1,5 @@
 from io import BytesIO
+from json import JSONDecodeError
 
 from app.extensions import db
 from app.models import Content, DeviceAction, DeviceSync, VenueDevice
@@ -109,6 +110,19 @@ class FakeSupabase:
         self.storage = FakeStorage(self.bucket)
 
 
+class FakeS3:
+    def __init__(self):
+        self.objects = []
+
+    def put_object(self, **kwargs):
+        self.objects.append(kwargs)
+
+
+class BrokenStorageBucket(FakeStorageBucket):
+    def upload(self, path, payload, file_options):
+        raise JSONDecodeError("Invalid upstream response", "", 0)
+
+
 def test_upload_requires_operator(client, member_headers):
     file_data = {"file": (BytesIO(b"video"), "tour.mp4", "video/mp4")}
     assert client.post("/api/v1/storage/upload", data=file_data).status_code == 401
@@ -134,6 +148,30 @@ def test_operator_uploads_media_to_supabase(app, client, operator_headers):
     assert fake.bucket.uploads[0][2]["content-type"] == "video/mp4"
 
 
+def test_operator_uploads_media_with_s3_credentials(app, client, operator_headers):
+    fake = FakeS3()
+    app.config.update({
+        "S3_ENDPOINT_URL": "https://project.storage.supabase.co/storage/v1/s3",
+        "S3_REGION": "ap-south-1",
+        "S3_ACCESS_KEY_ID": "access-key",
+        "S3_SECRET_ACCESS_KEY": "secret-key",
+        "S3_BUCKET": "hominsu",
+        "SUPABASE_URL": "https://project.supabase.co",
+    })
+    app.extensions["s3"] = fake
+    response = client.post(
+        "/api/v1/storage/upload",
+        data={"file": (BytesIO(b"video"), "tour.mp4", "video/mp4")},
+        headers=operator_headers,
+    )
+    assert response.status_code == 201
+    data = response.get_json()["data"]
+    assert data["provider"] == "s3"
+    assert data["url"].startswith("https://project.supabase.co/storage/v1/object/public/hominsu/")
+    assert fake.objects[0]["Bucket"] == "hominsu"
+    assert fake.objects[0]["ContentType"] == "video/mp4"
+
+
 def test_upload_validates_type_and_size(app, client, operator_headers):
     app.extensions["supabase"] = FakeSupabase()
     invalid = client.post(
@@ -151,3 +189,17 @@ def test_upload_validates_type_and_size(app, client, operator_headers):
     )
     assert oversized.status_code == 413
     assert oversized.get_json()["error"]["code"] == "request_entity_too_large"
+
+
+def test_malformed_storage_response_returns_bad_gateway(app, client, operator_headers):
+    fake = FakeSupabase()
+    fake.bucket = BrokenStorageBucket()
+    fake.storage = FakeStorage(fake.bucket)
+    app.extensions["supabase"] = fake
+    response = client.post(
+        "/api/v1/storage/upload",
+        data={"file": (BytesIO(b"video"), "tour.mp4", "video/mp4")},
+        headers=operator_headers,
+    )
+    assert response.status_code == 502
+    assert response.get_json()["error"]["code"] == "storage_error"

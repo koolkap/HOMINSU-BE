@@ -1,6 +1,11 @@
+import logging
 from pathlib import Path
+from urllib.parse import quote
 from uuid import uuid4
 
+import boto3
+from botocore.config import Config as BotoConfig
+from botocore.exceptions import BotoCoreError, ClientError
 from flask import Blueprint, current_app, jsonify, request
 from storage3.exceptions import StorageApiError
 from supabase import create_client
@@ -11,6 +16,7 @@ from .errors import error_response
 
 
 bp = Blueprint("uploads", __name__)
+logger = logging.getLogger("uvicorn.error")
 
 ALLOWED_MEDIA_TYPES = {
     ".jpeg": {"image/jpeg"},
@@ -42,6 +48,49 @@ def get_supabase_client():
     return client
 
 
+def get_s3_client():
+    client = current_app.extensions.get("s3")
+    if client is not None:
+        return client
+
+    required = {
+        "AWS_ENDPOINT_URL_S3": current_app.config.get("S3_ENDPOINT_URL"),
+        "AWS_ACCESS_KEY_ID": current_app.config.get("S3_ACCESS_KEY_ID"),
+        "AWS_SECRET_ACCESS_KEY": current_app.config.get("S3_SECRET_ACCESS_KEY"),
+    }
+    missing = [name for name, value in required.items() if not value]
+    if missing:
+        raise StorageConfigurationError(f"Missing S3 variables: {', '.join(missing)}")
+
+    client = boto3.client(
+        "s3",
+        endpoint_url=current_app.config["S3_ENDPOINT_URL"],
+        region_name=current_app.config["S3_REGION"],
+        aws_access_key_id=current_app.config["S3_ACCESS_KEY_ID"],
+        aws_secret_access_key=current_app.config["S3_SECRET_ACCESS_KEY"],
+        config=BotoConfig(signature_version="s3v4", s3={"addressing_style": "path"}),
+    )
+    current_app.extensions["s3"] = client
+    return client
+
+
+def has_s3_configuration() -> bool:
+    return all(current_app.config.get(name) for name in (
+        "S3_ENDPOINT_URL",
+        "S3_ACCESS_KEY_ID",
+        "S3_SECRET_ACCESS_KEY",
+    ))
+
+
+def public_storage_url(bucket_name: str, object_path: str) -> str:
+    supabase_url = (current_app.config.get("SUPABASE_URL") or "").rstrip("/")
+    if not supabase_url:
+        endpoint = current_app.config["S3_ENDPOINT_URL"]
+        project_ref = endpoint.split("//", 1)[-1].split(".storage.supabase.co", 1)[0]
+        supabase_url = f"https://{project_ref}.supabase.co"
+    return f"{supabase_url}/storage/v1/object/public/{quote(bucket_name)}/{quote(object_path, safe='/')}"
+
+
 @bp.post("/storage/upload")
 @operator_required
 def upload_file():
@@ -67,26 +116,42 @@ def upload_file():
         return error_response("request_entity_too_large", "Files may not exceed 50 MiB.", 413)
 
     user = current_user()
-    bucket_name = current_app.config["SUPABASE_STORAGE_BUCKET"]
+    bucket_name = current_app.config["S3_BUCKET"] if has_s3_configuration() else current_app.config["SUPABASE_STORAGE_BUCKET"]
     object_path = f"uploads/{user.id}/{uuid4().hex}{suffix}"
 
     try:
-        bucket = get_supabase_client().storage.from_(bucket_name)
-        bucket.upload(
-            object_path,
-            payload,
-            file_options={
-                "cache-control": "3600",
-                "content-type": content_type,
-                "upsert": "false",
-            },
-        )
-        public_url = bucket.get_public_url(object_path)
-    except StorageConfigurationError:
-        current_app.logger.error("Supabase storage credentials are not configured")
-        return error_response("storage_unavailable", "Media storage is not configured.", 503)
-    except StorageApiError as error:
-        current_app.logger.exception("Supabase storage upload failed", exc_info=error)
+        if has_s3_configuration():
+            get_s3_client().put_object(
+                Bucket=bucket_name,
+                Key=object_path,
+                Body=payload,
+                ContentType=content_type,
+                CacheControl="public, max-age=3600",
+            )
+            public_url = public_storage_url(bucket_name, object_path)
+            provider = "s3"
+        else:
+            bucket = get_supabase_client().storage.from_(bucket_name)
+            bucket.upload(
+                object_path,
+                payload,
+                file_options={
+                    "cache-control": "3600",
+                    "content-type": content_type,
+                    "upsert": "false",
+                },
+            )
+            public_url = bucket.get_public_url(object_path)
+            provider = "supabase"
+    except StorageConfigurationError as error:
+        logger.error("Storage configuration error: %s", error)
+        return error_response("storage_unavailable", str(error), 503)
+    except (BotoCoreError, ClientError, StorageApiError):
+        logger.exception("Storage upload failed")
+        return error_response("storage_error", "The file could not be stored.", 502)
+    except Exception:
+        # Some storage clients raise decoding errors for non-JSON upstream responses.
+        logger.exception("Unexpected storage provider response")
         return error_response("storage_error", "The file could not be stored.", 502)
 
     return jsonify({"data": {
@@ -96,4 +161,5 @@ def upload_file():
         "original_name": filename,
         "content_type": content_type,
         "size": len(payload),
+        "provider": provider,
     }}), 201

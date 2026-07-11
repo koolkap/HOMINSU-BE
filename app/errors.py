@@ -1,9 +1,14 @@
+import logging
+
 from flask import jsonify
 from flask_jwt_extended.exceptions import JWTExtendedException
 from sqlalchemy.exc import IntegrityError
 from werkzeug.exceptions import HTTPException
 
 from .extensions import db
+
+
+logger = logging.getLogger("uvicorn.error")
 
 
 def error_response(code: str, message: str, status: int):
@@ -18,7 +23,7 @@ def register_error_handlers(app):
     @app.errorhandler(IntegrityError)
     def handle_integrity_error(error):
         db.session.rollback()
-        app.logger.warning("Database constraint violation: %s", error)
+        logger.warning("Database constraint violation: %s", error)
         return error_response("conflict", "The request conflicts with existing data.", 409)
 
     @app.errorhandler(JWTExtendedException)
@@ -27,5 +32,5 @@ def register_error_handlers(app):
 
     @app.errorhandler(Exception)
     def handle_unexpected_error(error):
-        app.logger.exception("Unhandled exception", exc_info=error)
+        logger.error("Unhandled exception: %s", type(error).__name__, exc_info=True)
         return error_response("internal_error", "An unexpected error occurred.", 500)
