@@ -34,12 +34,38 @@ class User(TimestampMixin, db.Model):
     role_id: Mapped[int] = mapped_column(db.ForeignKey("roles.id"), nullable=False)
     role: Mapped[Role] = relationship(back_populates="users")
     wallet: Mapped["Wallet"] = relationship(back_populates="user", uselist=False, cascade="all, delete-orphan")
+    media_assets: Mapped[list["MediaAsset"]] = relationship(back_populates="owner")
 
     def set_password(self, password: str) -> None:
         self.password_hash = generate_password_hash(password)
 
     def check_password(self, password: str) -> bool:
         return check_password_hash(self.password_hash, password)
+
+
+class MediaAsset(TimestampMixin, db.Model):
+    __tablename__ = "media_assets"
+    __table_args__ = (
+        CheckConstraint("provider IN ('s3', 'supabase')", name="provider_valid"),
+        CheckConstraint("media_kind IN ('image', 'video')", name="media_kind_valid"),
+        CheckConstraint("storage_state IN ('ready', 'cleanup_required')", name="storage_state_valid"),
+        CheckConstraint("size_bytes > 0", name="size_bytes_positive"),
+        UniqueConstraint("provider", "bucket", "object_path", name="uq_media_asset_storage_object"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner_id: Mapped[int] = mapped_column(db.ForeignKey("users.id"), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(db.String(16), nullable=False)
+    bucket: Mapped[str] = mapped_column(db.String(255), nullable=False)
+    object_path: Mapped[str] = mapped_column(db.String(1024), nullable=False)
+    public_url: Mapped[str] = mapped_column(db.String(2048), nullable=False)
+    original_name: Mapped[str] = mapped_column(db.String(255), nullable=False)
+    title: Mapped[str] = mapped_column(db.String(200), nullable=False)
+    content_type: Mapped[str] = mapped_column(db.String(100), nullable=False)
+    media_kind: Mapped[str] = mapped_column(db.String(16), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(db.BigInteger, nullable=False)
+    is_showcase_ready: Mapped[bool] = mapped_column(default=False, nullable=False, index=True)
+    storage_state: Mapped[str] = mapped_column(db.String(24), default="ready", nullable=False, index=True)
+    owner: Mapped[User] = relationship(back_populates="media_assets")
 
 
 class Creator(TimestampMixin, db.Model):

@@ -13,6 +13,8 @@ from werkzeug.utils import secure_filename
 
 from .auth import current_user, operator_required
 from .errors import error_response
+from .extensions import db
+from .models import MediaAsset
 
 
 bp = Blueprint("uploads", __name__)
@@ -94,6 +96,44 @@ def public_storage_url(bucket_name: str, object_path: str) -> str:
     return f"{supabase_url}/storage/v1/object/public/{quote(bucket_name)}/{quote(object_path, safe='/')}"
 
 
+def delete_storage_object(provider: str, bucket_name: str, object_path: str) -> None:
+    if provider == "s3":
+        get_s3_client().delete_object(Bucket=bucket_name, Key=object_path)
+    else:
+        get_supabase_client().storage.from_(bucket_name).remove([object_path])
+
+
+def serialize_media_asset(asset: MediaAsset) -> dict:
+    return {
+        "id": asset.id,
+        "bucket": asset.bucket,
+        "path": asset.object_path,
+        "url": asset.public_url,
+        "original_name": asset.original_name,
+        "title": asset.title,
+        "content_type": asset.content_type,
+        "media_kind": asset.media_kind,
+        "size": asset.size_bytes,
+        "size_bytes": asset.size_bytes,
+        "provider": asset.provider,
+        "is_showcase_ready": asset.is_showcase_ready,
+        "storage_state": asset.storage_state,
+        "owner": {"id": asset.owner.id, "display_name": asset.owner.display_name},
+        "created_at": asset.created_at.isoformat(),
+    }
+
+
+def serialize_showcase_asset(asset: MediaAsset) -> dict:
+    return {
+        "id": asset.id,
+        "title": asset.title,
+        "url": asset.public_url,
+        "content_type": asset.content_type,
+        "size_bytes": asset.size_bytes,
+        "created_at": asset.created_at.isoformat(),
+    }
+
+
 @bp.post("/storage/upload")
 @operator_required
 def upload_file():
@@ -157,12 +197,80 @@ def upload_file():
         logger.exception("Unexpected storage provider response")
         return error_response("storage_error", "The file could not be stored.", 502)
 
-    return jsonify({"data": {
-        "bucket": bucket_name,
-        "path": object_path,
-        "url": public_url,
-        "original_name": filename,
-        "content_type": content_type,
-        "size": len(payload),
-        "provider": provider,
-    }}), 201
+    title = Path(filename).stem.replace("_", " ").replace("-", " ").strip() or filename
+    asset = MediaAsset(
+        owner=user,
+        provider=provider,
+        bucket=bucket_name,
+        object_path=object_path,
+        public_url=public_url,
+        original_name=filename,
+        title=title[:200],
+        content_type=content_type,
+        media_kind="video" if content_type.startswith("video/") else "image",
+        size_bytes=len(payload),
+        is_showcase_ready=content_type in {"video/mp4", "video/webm"},
+        storage_state="ready",
+    )
+    try:
+        db.session.add(asset)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        try:
+            delete_storage_object(provider, bucket_name, object_path)
+        except Exception:
+            logger.exception("Failed to clean up storage after database error")
+        logger.exception("Failed to persist uploaded media")
+        return error_response("persistence_error", "The uploaded media could not be recorded.", 500)
+
+    return jsonify({"data": serialize_media_asset(asset)}), 201
+
+
+@bp.get("/operator/media")
+@operator_required
+def list_operator_media():
+    user = current_user()
+    query = db.select(MediaAsset).order_by(MediaAsset.created_at.desc(), MediaAsset.id.desc())
+    if user.role.name != "admin":
+        query = query.where(MediaAsset.owner_id == user.id)
+    assets = db.session.scalars(query.limit(100)).all()
+    return jsonify({"data": [serialize_media_asset(asset) for asset in assets]})
+
+
+@bp.delete("/operator/media/<int:asset_id>")
+@operator_required
+def delete_operator_media(asset_id: int):
+    user = current_user()
+    asset = db.session.get(MediaAsset, asset_id)
+    if not asset or (user.role.name != "admin" and asset.owner_id != user.id):
+        return error_response("not_found", "Media asset not found.", 404)
+
+    try:
+        delete_storage_object(asset.provider, asset.bucket, asset.object_path)
+    except Exception:
+        asset.is_showcase_ready = False
+        asset.storage_state = "cleanup_required"
+        db.session.commit()
+        logger.exception("Failed to delete media from storage")
+        return error_response("storage_error", "The media could not be deleted from storage.", 502)
+
+    db.session.delete(asset)
+    db.session.commit()
+    return "", 204
+
+
+@bp.get("/showcase/media")
+def list_showcase_media():
+    query = (
+        db.select(MediaAsset)
+        .where(
+            MediaAsset.is_showcase_ready.is_(True),
+            MediaAsset.storage_state == "ready",
+            MediaAsset.media_kind == "video",
+        )
+        .order_by(MediaAsset.created_at.desc(), MediaAsset.id.desc())
+        .limit(24)
+    )
+    assets = db.session.scalars(query).all()
+    return jsonify({"data": [serialize_showcase_asset(asset) for asset in assets]})

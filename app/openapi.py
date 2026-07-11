@@ -163,13 +163,46 @@ OPENAPI_SPEC = {
                 },
             }
         },
+        "/api/v1/operator/media": {
+            "get": {
+                "tags": ["Creator"], "summary": "List uploaded media for the operator library",
+                "operationId": "listOperatorMedia", "security": [{"BearerAuth": []}],
+                "responses": {
+                    "200": {"description": "Uploaded media list"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                },
+            }
+        },
+        "/api/v1/operator/media/{asset_id}": {
+            "delete": {
+                "tags": ["Creator"], "summary": "Delete uploaded media from storage and the library",
+                "operationId": "deleteOperatorMedia", "security": [{"BearerAuth": []}],
+                "parameters": [{"$ref": "#/components/parameters/MediaAssetId"}],
+                "responses": {
+                    "204": {"description": "Media deleted"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "502": {"description": "Storage deletion failed"},
+                },
+            }
+        },
+        "/api/v1/showcase/media": {
+            "get": {
+                "tags": ["Creator"], "summary": "List uploaded videos showcased to members",
+                "operationId": "listShowcaseMedia",
+                "responses": {"200": {"description": "Public uploaded video showcase"}},
+            }
+        },
     },
     "components": {
         "securitySchemes": {
             "BearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}
         },
         "parameters": {
-            "ContentId": {"name": "content_id", "in": "path", "required": True, "schema": {"type": "integer", "minimum": 1}}
+            "ContentId": {"name": "content_id", "in": "path", "required": True, "schema": {"type": "integer", "minimum": 1}},
+            "MediaAssetId": {"name": "asset_id", "in": "path", "required": True, "schema": {"type": "integer", "minimum": 1}},
         },
         "schemas": {
             "LoginRequest": {

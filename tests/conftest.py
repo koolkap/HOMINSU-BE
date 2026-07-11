@@ -41,3 +41,9 @@ def member_headers(client):
 def operator_headers(client):
     token = login(client, "operator@hominsu.local", "operator1234")
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture()
+def admin_headers(client):
+    token = login(client, "admin@hominsu.local", "admin1234")
+    return {"Authorization": f"Bearer {token}"}

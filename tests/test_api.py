@@ -2,7 +2,7 @@ from io import BytesIO
 from json import JSONDecodeError
 
 from app.extensions import db
-from app.models import Content, DeviceAction, DeviceSync, VenueDevice
+from app.models import Content, DeviceAction, DeviceSync, MediaAsset, VenueDevice
 
 
 def test_health(client):
@@ -24,6 +24,9 @@ def test_openapi_spec_and_swagger_ui(client):
     assert spec.get_json()["info"]["title"] == "HOMINSU REST API"
     assert "/api/v1/auth/login" in spec.get_json()["paths"]
     assert "/api/v1/storage/upload" in spec.get_json()["paths"]
+    assert "/api/v1/operator/media" in spec.get_json()["paths"]
+    assert "/api/v1/operator/media/{asset_id}" in spec.get_json()["paths"]
+    assert "/api/v1/showcase/media" in spec.get_json()["paths"]
     docs = client.get("/docs/")
     assert docs.status_code == 200
     assert b"HOMINSU REST API" in docs.data
@@ -86,12 +89,17 @@ def test_operator_can_sync_fleet(app, client, operator_headers):
 class FakeStorageBucket:
     def __init__(self):
         self.uploads = []
+        self.removals = []
 
     def upload(self, path, payload, file_options):
         self.uploads.append((path, payload, file_options))
 
     def get_public_url(self, path):
         return f"https://storage.example/{path}"
+
+    def remove(self, paths):
+        self.removals.append(paths)
+        return [{"name": path} for path in paths]
 
 
 class FakeStorage:
@@ -113,9 +121,14 @@ class FakeSupabase:
 class FakeS3:
     def __init__(self):
         self.objects = []
+        self.deletions = []
 
     def put_object(self, **kwargs):
         self.objects.append(kwargs)
+
+    def delete_object(self, **kwargs):
+        self.deletions.append(kwargs)
+        return {"ResponseMetadata": {"HTTPStatusCode": 204}}
 
 
 class BrokenStorageBucket(FakeStorageBucket):
@@ -145,7 +158,14 @@ def test_operator_uploads_media_to_supabase(app, client, operator_headers):
     assert data["path"].endswith(".mp4")
     assert "tour" not in data["path"]
     assert data["size"] == 5
+    assert data["id"] > 0
+    assert data["media_kind"] == "video"
+    assert data["is_showcase_ready"] is True
     assert fake.bucket.uploads[0][2]["content-type"] == "video/mp4"
+    with app.app_context():
+        assert db.session.get(MediaAsset, data["id"]).owner_id == 2
+    assert client.delete(f"/api/v1/operator/media/{data['id']}", headers=operator_headers).status_code == 204
+    assert fake.bucket.removals == [[data["path"]]]
 
 
 def test_operator_uploads_media_with_s3_credentials(app, client, operator_headers):
@@ -170,6 +190,44 @@ def test_operator_uploads_media_with_s3_credentials(app, client, operator_header
     assert data["url"].startswith("https://project.supabase.co/storage/v1/object/public/hominsu/")
     assert fake.objects[0]["Bucket"] == "hominsu"
     assert fake.objects[0]["ContentType"] == "video/mp4"
+
+
+def test_operator_library_showcase_and_s3_delete(app, client, operator_headers):
+    fake = FakeS3()
+    app.config.update({
+        "STORAGE_PROVIDER": "s3",
+        "S3_ENDPOINT_URL": "https://project.storage.supabase.co/storage/v1/s3",
+        "S3_REGION": "ap-south-1",
+        "S3_ACCESS_KEY_ID": "access-key",
+        "S3_SECRET_ACCESS_KEY": "secret-key",
+        "S3_BUCKET": "hominsu",
+        "SUPABASE_URL": "https://project.supabase.co",
+    })
+    app.extensions["s3"] = fake
+    uploaded = client.post(
+        "/api/v1/storage/upload",
+        data={"file": (BytesIO(b"video"), "my-vr-tour.mp4", "video/mp4")},
+        headers=operator_headers,
+    ).get_json()["data"]
+
+    library = client.get("/api/v1/operator/media", headers=operator_headers)
+    assert library.status_code == 200
+    assert [item["id"] for item in library.get_json()["data"]] == [uploaded["id"]]
+
+    showcase = client.get("/api/v1/showcase/media")
+    assert showcase.status_code == 200
+    assert showcase.get_json()["data"][0]["title"] == "my vr tour"
+    assert "path" not in showcase.get_json()["data"][0]
+
+    deleted = client.delete(f"/api/v1/operator/media/{uploaded['id']}", headers=operator_headers)
+    assert deleted.status_code == 204
+    assert fake.deletions[0]["Key"] == uploaded["path"]
+    assert client.get("/api/v1/showcase/media").get_json()["data"] == []
+
+
+def test_member_cannot_manage_media(client, member_headers):
+    assert client.get("/api/v1/operator/media", headers=member_headers).status_code == 403
+    assert client.delete("/api/v1/operator/media/1", headers=member_headers).status_code == 403
 
 
 def test_explicit_s3_provider_reports_missing_railway_variables(app, client, operator_headers):
