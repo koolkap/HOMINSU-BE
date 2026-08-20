@@ -1,5 +1,8 @@
 # Hominsu VR Studio on Railway
 
+For the dashboard click-by-click setup, see
+[`RAILWAY_SERVICE_SETUP.md`](RAILWAY_SERVICE_SETUP.md).
+
 This deployment uses two Railway services in the same Railway project and
 environment, plus the external Supabase project:
 

@@ -28,12 +28,6 @@ class Settings(BaseSettings):
     POSTGRES_DB: str = "hominsu"
     DATABASE_URL: str = "postgresql+asyncpg://hominsu:hominsu_dev_password@localhost:5432/hominsu"
 
-    # --- Supabase (optional auth/API metadata; keep the secret server-side) ---
-    SUPABASE_URL: str = ""
-    SUPABASE_PUBLISHABLE_KEY: str = ""
-    SUPABASE_SECRET_KEY: str = ""
-    SUPABASE_JWKS_URL: str = ""
-
     # --- Security ---
     SECRET_KEY: str = "change-me-in-production-9f2c1a7e4b8d6f0a3c5e9b1d7f4a2c8e"
     JWT_ALGORITHM: str = "HS256"

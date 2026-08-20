@@ -14,7 +14,7 @@ class Base(DeclarativeBase):
 database_url = make_url(settings.DATABASE_URL)
 connect_args: dict[str, object] = {}
 
-# Supabase connection strings may use libpq's ``sslmode`` query parameter.
+# PostgreSQL connection strings may use libpq's ``sslmode`` query parameter.
 # asyncpg expects the equivalent option as ``ssl`` instead.
 sslmode = database_url.query.get("sslmode")
 if sslmode:

@@ -32,7 +32,7 @@ The checked-in service currently provides:
 | **P1** | There is no application-level heartbeat timeout, command acknowledgement, or reconnect backoff protocol. | Half-open sockets and undelivered commands can look healthy; synchronized playback cannot be confirmed. | Add server/device ping-pong and a heartbeat deadline, exponential reconnect backoff, command IDs, device ACKs, expiry timestamps, and retry/dead-letter handling. |
 | **P1** | A purchase can be repeated and the point deduction has no idempotency key or entitlement table. | Retries or repeated unlock requests can charge a user more than once for the same content. | Add `idempotency_key`, a unique purchase/entitlement record per user/content, and an atomic “already unlocked” check. |
 | **P1** | The requested 15-second preview lock and ad-reward flow are not represented in the current models or routes; `/me` also returns the schema default for `subscription_tier` rather than a persisted tier. | The paywall can be bypassed or cannot reliably grant an ad reward/subscription benefit. | Add preview-session state, verified ad-reward callbacks, entitlements/subscription fields, and enforce playback authorization at the media-token or playback API boundary. |
-| **P1** | The production database needs a versioned schema workflow. | Untracked schema changes can make Railway and Supabase environments diverge. | Use the checked-in Supabase CLI migration under `supabase/migrations/` and run `supabase db push` before deployment. |
+| **P1** | The database needs a versioned schema workflow. | Untracked schema changes can make environments diverge. | Use the checked-in Alembic migration under `alembic/versions/` and run `alembic upgrade head` against the target PostgreSQL database. |
 | **P2** | Operator broadcasts are sent sequentially, and there is no bounded queue or timeout. | One slow socket can delay telemetry to every other operator. | Send concurrently with per-socket timeouts, remove failed sockets, and use bounded queues for high-rate telemetry. |
 | **P2** | `/health` does not check database or SRS readiness. | A process can report healthy while dependencies are unavailable. | Split liveness and readiness checks and include database connectivity and SRS API reachability in readiness. |
 | **P2** | The local default enables `DEBUG` and contains a fallback secret. | Debug seeding and a known JWT secret are unsafe if deployed accidentally. | Require an explicit environment, fail startup when the default secret is used outside local development, and disable demo seeding in staging/production. |
@@ -212,23 +212,18 @@ operation can be run explicitly after PostgreSQL is ready:
 python -c "import asyncio; from app.core.database import init_db; asyncio.run(init_db())"
 ```
 
-The repository contains a checked-in Supabase CLI migration at:
+The repository also contains a checked-in SQL migration for the former hosted
+database setup, but it is not needed for this local-only configuration. Use
+the local Alembic migration against Docker PostgreSQL:
 
 ```bash
-supabase/migrations/20260820075003_new-migration.sql
+alembic upgrade head
 ```
 
-Apply it to the linked Supabase project from the repository root with:
-
-```bash
-supabase link --project-ref <PROJECT_REF>
-supabase db push --linked
-supabase migration list --linked
-```
-
-Supabase CLI is the production schema source of truth. `create_all()` is retained only for local
-development when `DEBUG=true`; do not run both migration systems against the same production
-database.
+For a clean local database, `DEBUG=true` also creates the tables and seeds demo
+records during FastAPI startup. Use either automatic startup initialization or
+`alembic upgrade head`; do not run both when you need a strict migration-only
+workflow.
 
 ## Step 3: Start FastAPI
 
@@ -560,7 +555,7 @@ Before deploying this service for real users or paid content:
 - [ ] Add Redis Pub/Sub or a dedicated WebSocket gateway for multi-worker/multi-replica operation.
 - [ ] Make reconnect cleanup connection-identity aware; add heartbeat deadlines and command ACKs.
 - [ ] Authenticate and strictly validate SRS hooks; reconcile stale live streams.
-- [ ] Apply the checked-in Supabase migration with `supabase db push` and verify `supabase migration list`.
+- [ ] For a deployed environment, run the chosen migration workflow against that environment's PostgreSQL database.
 - [ ] Disable `DEBUG`, demo seeding, wildcard CORS, and default secrets.
 - [ ] Add database/SRS readiness probes, structured logs, metrics, tracing, and alerting.
 - [ ] Put FastAPI, SRS HTTP endpoints, HLS, and WebSockets behind the intended TLS/reverse-proxy policy.
