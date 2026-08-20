@@ -11,6 +11,8 @@ RUN pip install --upgrade pip \
     && pip install -r requirements.txt
 
 COPY app ./app
+COPY alembic.ini ./
+COPY alembic ./alembic
 
 # Railway injects PORT at runtime. The fallback keeps the image convenient
 # for local Docker runs.

@@ -42,7 +42,10 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db() -> None:
-    """Create all tables on startup (dev convenience; use Alembic in production)."""
+    """Create tables for local development; production uses Alembic."""
+    if not settings.DEBUG:
+        return
+
     # Import models so they are registered on Base.metadata before create_all.
     import app.models  # noqa: F401
 
