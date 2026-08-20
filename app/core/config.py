@@ -13,7 +13,8 @@ class Settings(BaseSettings):
     # --- Application ---
     APP_NAME: str = "Hominsu VR Studio API"
     APP_VERSION: str = "0.1.0"
-    DEBUG: bool = True
+    # Production-safe default. Set DEBUG=true explicitly for local auto-create/seed behavior.
+    DEBUG: bool = False
     API_V1_PREFIX: str = "/api/v1"
 
     # --- Database (PostgreSQL) ---
