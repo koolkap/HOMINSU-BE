@@ -1,13 +1,13 @@
 # Hominsu VR Studio on Railway
 
-This deployment uses three Railway services in the same Railway project and
-environment:
+This deployment uses two Railway services in the same Railway project and
+environment, plus the external Supabase project:
 
 | Railway service | Responsibility | Public exposure |
 |---|---|---|
 | `Backend` | FastAPI, WebSockets, SRS webhooks | HTTPS domain, normally port `$PORT` |
 | `SRS` | RTMP ingest and HLS playback | TCP Proxy for `1935`; HTTPS domain for `8080` |
-| `Postgres` | Managed PostgreSQL | Private only |
+| Supabase | PostgreSQL database and Supabase project services | Supabase-managed |
 
 Railway does not provide a fixed public Docker IP for this setup. Use the
 Railway-provided DNS names and generated TCP Proxy port. Railway supports
@@ -41,14 +41,19 @@ Do not commit `.env`, passwords, JWT secrets, or database dumps.
 ## 3. Create the Railway project and services
 
 1. Create an empty Railway project.
-2. Add a PostgreSQL service and name it `Postgres`.
-3. Add the GitHub repository as a service and name it `Backend`.
-4. Add the same repository as another service and name it `SRS`.
+2. Add the GitHub repository as a service and name it `Backend`.
+3. Add the same repository as another service and name it `SRS`.
 
-Deploy `Postgres` and `Backend` first. This gives the SRS service a resolvable
-Backend private hostname and port. Deploy SRS next, create its public HTTP
-domain and TCP Proxy, and then replace the Backend's temporary HLS URL with
-the SRS domain as described below.
+Create or use the Supabase project separately. Supabase provides a full
+PostgreSQL database. Copy its connection string from the Supabase Connect
+panel; `SUPABASE_URL` alone is the HTTP API base URL and cannot be used as
+SQLAlchemy's `DATABASE_URL`. Supabase documents the connection modes and
+pooler ports in its [database connection guide](https://supabase.com/docs/guides/database/connecting-to-postgres).
+
+Deploy `Backend` first with the Supabase connection string. This gives the SRS
+service a resolvable Backend private hostname and port. Deploy SRS next,
+create its public HTTP domain and TCP Proxy, and then replace the Backend's
+temporary HLS URL with the SRS domain as described below.
 
 Railway treats Compose services as separate Railway services rather than
 running a local `docker-compose.yml` unchanged. See the
@@ -94,10 +99,19 @@ In the `Backend` service Variables tab, add:
 DEBUG=false
 SECRET_KEY=<long-random-production-secret>
 ACCESS_TOKEN_EXPIRE_MINUTES=1440
-DATABASE_URL=${{Postgres.DATABASE_URL}}
+DATABASE_URL=postgresql+asyncpg://postgres.<PROJECT_REF>:<DB_PASSWORD>@aws-<REGION>.pooler.supabase.com:5432/postgres
+SUPABASE_URL=https://<PROJECT_REF>.supabase.co
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_<PUBLIC_KEY>
+SUPABASE_SECRET_KEY=sb_secret_<SEALED_SECRET_KEY>
+SUPABASE_JWKS_URL=https://<PROJECT_REF>.supabase.co/auth/v1/.well-known/jwks.json
 SRS_HLS_BASE_URL=https://placeholder.invalid
 CORS_ORIGINS=["https://<your-frontend-domain>"]
 ```
+
+Use the Supabase **Session pooler** URI for this long-running FastAPI service.
+Do not paste the Supabase API URL in `DATABASE_URL`. Set the database password
+as a sealed Railway variable. The application converts a standard
+`postgresql://` URL to the asyncpg SQLAlchemy scheme automatically.
 
 Use `https://placeholder.invalid` only for the initial Backend deployment if
 the SRS public domain has not been generated yet. It is replaced in Section 6
@@ -109,9 +123,13 @@ If you do not have a frontend yet, use this temporarily for API testing:
 CORS_ORIGINS=["*"]
 ```
 
-Replace it before production browser use. The application converts Railway's
-standard `postgresql://` connection string to the asyncpg SQLAlchemy scheme
-automatically.
+Replace it before production browser use.
+
+These variables are loaded into the backend settings. They do not by
+themselves switch the current `/auth/social-login` endpoint to Supabase Auth;
+that endpoint currently creates the application's own JWT. Supabase Auth JWT
+verification is a separate integration step if you want Supabase to own user
+login.
 
 ## 5. Configure SRS variables
 
@@ -282,16 +300,20 @@ uses the SRS public HTTPS domain in `SRS_HLS_BASE_URL`.
 
 ### Backend fails during startup
 
-Check that `DATABASE_URL` references the Railway Postgres service and that the
-Postgres service is in the same project and environment. The current backend
-creates missing tables on startup for this codebase; no first local migration
-command is required for the initial Railway database.
+Check that `DATABASE_URL` is the Supabase Connect **Session pooler** PostgreSQL
+URI and that its password is correct. The current backend creates missing
+tables on startup for this codebase; no first local migration command is
+required for the initial Supabase database.
 
 ## Railway variable summary
 
 | Service | Variable | Value |
 |---|---|---|
-| Backend | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` |
+| Backend | `DATABASE_URL` | Supabase Session pooler URI |
+| Backend | `SUPABASE_URL` | `https://<PROJECT_REF>.supabase.co` |
+| Backend | `SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key |
+| Backend | `SUPABASE_SECRET_KEY` | sealed Supabase secret key |
+| Backend | `SUPABASE_JWKS_URL` | Supabase Auth JWKS URL |
 | Backend | `SRS_HLS_BASE_URL` | `https://${{SRS.RAILWAY_PUBLIC_DOMAIN}}` |
 | Backend | `DEBUG` | `false` |
 | Backend | `SECRET_KEY` | generated secret |

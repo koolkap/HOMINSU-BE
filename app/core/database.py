@@ -1,6 +1,7 @@
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
@@ -10,7 +11,22 @@ class Base(DeclarativeBase):
     """Declarative base shared by all ORM models."""
 
 
-engine = create_async_engine(settings.DATABASE_URL, echo=False, pool_pre_ping=True)
+database_url = make_url(settings.DATABASE_URL)
+connect_args: dict[str, object] = {}
+
+# Supabase connection strings may use libpq's ``sslmode`` query parameter.
+# asyncpg expects the equivalent option as ``ssl`` instead.
+sslmode = database_url.query.get("sslmode")
+if sslmode:
+    connect_args["ssl"] = sslmode
+    database_url = database_url.difference_update_query(["sslmode"])
+
+engine = create_async_engine(
+    database_url,
+    echo=False,
+    pool_pre_ping=True,
+    connect_args=connect_args,
+)
 
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
