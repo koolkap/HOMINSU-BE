@@ -1,0 +1,10 @@
+FROM ossrs/srs:5
+
+COPY srs.railway.conf.template /opt/hominsu/srs.conf.template
+COPY scripts/start_srs_railway.sh /opt/hominsu/start_srs_railway.sh
+
+RUN chmod +x /opt/hominsu/start_srs_railway.sh
+
+EXPOSE 1935 1985 8080
+
+ENTRYPOINT ["/opt/hominsu/start_srs_railway.sh"]

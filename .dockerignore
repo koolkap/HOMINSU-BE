@@ -1,0 +1,11 @@
+.git
+.venv
+venv
+__pycache__
+*.py[cod]
+*.db
+.env
+.env.*
+*.log
+nginx.local.conf
+docker-compose.local.yml

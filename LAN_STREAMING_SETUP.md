@@ -58,7 +58,7 @@ is normally the private WSL virtual adapter. Use the Windows Wi-Fi IPv4 address 
 `ipconfig` (the current helper can also read `ipconfig.exe` automatically):
 
 ```bash
-bash scripts/install_nginx_ubuntu.sh --ip YOUR_WINDOWS_WIFI_IP --configure-ufw
+bash scripts/install_nginx_ubuntu.sh
 ```
 
 The default command is a dry run. It prints the URLs but does not change files.
@@ -127,6 +127,50 @@ docker compose -f docker-compose.local.yml up -d postgres srs
 docker compose -f docker-compose.local.yml ps
 ```
 
+To start and verify the media stack with one command, use the helper:
+
+```bash
+chmod +x scripts/start_media_stack.sh
+bash scripts/start_media_stack.sh
+```
+
+This starts `hominsu-postgres` and `hominsu-srs`, verifies that SRS publishes RTMP `1935`, and
+checks the SRS HTTP API on `1985`. If it reports that Docker is unavailable, enable Docker Desktop
+WSL integration or install Docker Engine and the Compose plugin on the Ubuntu server.
+
+### Windows PowerShell one-command launcher
+
+When running the project from Windows, use the PowerShell launcher instead of the Bash helper:
+
+```powershell
+.\scripts\start_media_stack.ps1
+```
+
+It starts Docker Desktop when it is installed but not running, starts PostgreSQL and SRS, checks
+that Windows has a published RTMP listener on `1935`, and prints the Insta360 URL. To create the
+Private-profile Windows Firewall rules, run PowerShell as Administrator:
+
+```powershell
+.\scripts\start_media_stack.ps1 -ConfigureFirewall
+```
+
+If Docker Desktop is not installed and `winget` is available, the launcher can install it and
+then start the stack:
+
+```powershell
+.\scripts\start_media_stack.ps1 -InstallDockerDesktop
+```
+
+Docker Desktop may request elevation and a restart. After installation, enable WSL integration
+for Ubuntu in Docker Desktop before rerunning the launcher.
+
+If PowerShell blocks local scripts, allow them for the current user and retry:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+.\scripts\start_media_stack.ps1
+```
+
 Start FastAPI in another terminal:
 
 ```powershell
@@ -184,26 +228,26 @@ configuration and keeps the repository `.env` owned by your user:
 
 ```bash
 chmod +x scripts/install_nginx_ubuntu.sh
-bash scripts/install_nginx_ubuntu.sh --ip 192.168.1.25 --configure-ufw
+bash scripts/install_nginx_ubuntu.sh
 ```
 
 The installer:
 
 1. Installs Nginx with `apt-get`.
-2. Updates `.env` through `setup_lan_network.py`, including `SRS_HLS_BASE_URL`.
-3. Backs up any existing Hominsu Nginx site and the Ubuntu default site.
-4. Copies the generated reverse-proxy site to `/etc/nginx/sites-available/hominsu.conf`.
-5. Enables it, validates it with `nginx -t`, and starts/reloads the Nginx systemd service.
-6. With `--configure-ufw`, installs UFW if needed and allows RTMP `1935` plus the selected Nginx
-   port through UFW. It does not enable UFW automatically, to avoid locking out SSH.
+2. Reads `LAN_HOST_IP` from `.env`; if it is missing, detects and writes the server LAN IP.
+3. Updates `.env`, including `SRS_HLS_BASE_URL` and LAN CORS origins.
+4. Backs up any existing Hominsu Nginx site and the Ubuntu default site.
+5. Copies the generated reverse-proxy site to `/etc/nginx/sites-available/hominsu.conf`.
+6. Enables it, validates it with `nginx -t`, and starts/reloads the Nginx systemd service.
+7. Installs UFW if needed and allows RTMP `1935` plus the selected Nginx port. UFW remains
+   inactive unless `--enable-ufw` is supplied, to avoid locking out SSH.
 
 The default external port is `8088`. To use standard HTTP port `80` instead:
 
 ```bash
 bash scripts/install_nginx_ubuntu.sh \
   --ip 192.168.1.25 \
-  --nginx-port 80 \
-  --configure-ufw
+  --nginx-port 80
 ```
 
 If `.env` is managed by another deployment system, prevent this script from editing it:
@@ -227,13 +271,10 @@ sudo nginx -t
 sudo journalctl -u nginx -n 100 --no-pager
 ```
 
-If the installer reports that UFW is inactive, verify that your SSH rule exists and then enable
-the firewall explicitly:
+To have the one-command installer enable UFW after allowing OpenSSH, RTMP, and Nginx:
 
 ```bash
-sudo ufw allow OpenSSH
-sudo ufw enable
-sudo ufw status verbose
+bash scripts/install_nginx_ubuntu.sh --enable-ufw
 ```
 
 With the default Nginx port, the externally reachable URLs are:

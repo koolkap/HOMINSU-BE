@@ -7,7 +7,9 @@ set -Eeuo pipefail
 # Run as a normal user with sudo access from the repository root or any clone of it.
 #
 # Example:
-#   bash scripts/install_nginx_ubuntu.sh --ip 192.168.1.25 --configure-ufw
+#   bash scripts/install_nginx_ubuntu.sh
+#
+# The normal one-command flow reads LAN_HOST_IP from .env. Use --ip only as a one-time override.
 #
 # The existing Python helper is used to update .env and generate the LAN URLs. No Python
 # third-party packages are required by that helper.
@@ -145,7 +147,7 @@ update_env_for_host() {
     local existing_host
     existing_host="$(read_env_value LAN_HOST_IP || true)"
     if [[ -f "${REPO_DIR}/.env" ]]; then
-        backup_if_present "${REPO_DIR}/.env"
+        cp -a "${REPO_DIR}/.env" "${REPO_DIR}/.env.backup.$(date +%Y%m%d%H%M%S)"
     fi
     upsert_env_value "LAN_HOST_IP" "$HOST_IP"
     upsert_env_value "SRS_HLS_BASE_URL" "http://${HOST_IP}:${NGINX_PORT}"

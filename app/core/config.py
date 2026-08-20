@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,6 +37,21 @@ class Settings(BaseSettings):
     # --- SRS Media Server ---
     SRS_HLS_BASE_URL: str = "http://localhost:8080"
     KRW_TO_POINTS_RATE: float = 1.1  # 10,000 KRW -> 11,000 P
+
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def use_asyncpg_driver(cls, value: str) -> str:
+        """Make Railway/Postgres connection URLs compatible with async SQLAlchemy.
+
+        Railway commonly provides DATABASE_URL with the standard
+        ``postgresql://`` scheme. This application uses SQLAlchemy's async
+        engine, which requires the asyncpg driver in the scheme.
+        """
+        if value.startswith("postgres://"):
+            return "postgresql+asyncpg://" + value[len("postgres://") :]
+        if value.startswith("postgresql://"):
+            return "postgresql+asyncpg://" + value[len("postgresql://") :]
+        return value
 
 
 @lru_cache
