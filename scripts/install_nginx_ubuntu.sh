@@ -24,7 +24,8 @@ SRS_RTMP_PORT=1935
 FRONTEND_PORT=3000
 HOST_IP=""
 SERVER_NAME="_"
-CONFIGURE_UFW=0
+CONFIGURE_UFW=1
+ENABLE_UFW=0
 SKIP_ENV=0
 
 usage() {
@@ -33,11 +34,13 @@ Usage:
   bash scripts/install_nginx_ubuntu.sh [options]
 
 Options:
-  --ip ADDRESS          LAN IPv4 address of this Ubuntu server.
+  --ip ADDRESS          Override LAN IPv4 address; otherwise read LAN_HOST_IP from .env.
   --server-name NAME   Nginx server_name; default is _ (all hostnames).
   --nginx-port PORT    External HTTP port; default is 8088.
   --frontend-port PORT Frontend dev-server port for CORS; default is 3000.
-  --configure-ufw      Allow RTMP 1935 and Nginx PORT through UFW.
+  --configure-ufw      Legacy alias for enabling UFW rule configuration.
+  --no-ufw              Do not install or configure UFW.
+  --enable-ufw          Enable UFW after allowing OpenSSH, RTMP, and Nginx.
   --skip-env           Do not update the repository .env file.
   -h, --help           Show this help.
 
@@ -67,6 +70,17 @@ valid_ipv4() {
 
 detect_host_ip() {
     local detected
+
+    # WSL2 has an internal 172.x address, which is not normally reachable from
+    # a phone on Wi-Fi. When available, prefer the Windows host's active adapter.
+    if command -v ipconfig.exe >/dev/null 2>&1; then
+        detected="$(ipconfig.exe 2>/dev/null | tr -d '\r' | awk '/IPv4 Address/ {print $NF; exit}')"
+        if valid_ipv4 "$detected" && [[ "$detected" != 127.* ]]; then
+            printf '%s' "$detected"
+            return
+        fi
+    fi
+
     detected="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i == "src") {print $(i+1); exit}}')"
     if valid_ipv4 "$detected" && [[ "$detected" != 127.* ]]; then
         printf '%s' "$detected"
@@ -80,6 +94,63 @@ detect_host_ip() {
     fi
 
     die "Could not detect a LAN IPv4 address. Run with --ip 192.168.x.x."
+}
+
+read_env_value() {
+    local key="$1"
+    local env_path="${REPO_DIR}/.env"
+    [[ -f "$env_path" ]] || return 0
+    awk -F= -v wanted="$key" '
+        /^[[:space:]]*#/ { next }
+        $1 ~ "^[[:space:]]*" wanted "[[:space:]]*$" {
+            value = substr($0, index($0, "=") + 1)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+            gsub(/^\"|\"$/, "", value)
+            gsub(/^\x27|\x27$/, "", value)
+            print value
+            exit
+        }
+    ' "$env_path"
+}
+
+upsert_env_value() {
+    local key="$1"
+    local value="$2"
+    local env_path="${REPO_DIR}/.env"
+    local temporary
+
+    if [[ ! -f "$env_path" ]]; then
+        if [[ -f "${REPO_DIR}/.env.example" ]]; then
+            cp "${REPO_DIR}/.env.example" "$env_path"
+        else
+            touch "$env_path"
+        fi
+    fi
+
+    temporary="$(mktemp)"
+    awk -v wanted="$key" -v replacement="${key}=${value}" '
+        BEGIN { found = 0 }
+        $0 ~ "^[[:space:]]*" wanted "[[:space:]]*=" {
+            print replacement
+            found = 1
+            next
+        }
+        { print }
+        END { if (!found) print replacement }
+    ' "$env_path" > "$temporary"
+    mv "$temporary" "$env_path"
+}
+
+update_env_for_host() {
+    local existing_host
+    existing_host="$(read_env_value LAN_HOST_IP || true)"
+    if [[ -f "${REPO_DIR}/.env" ]]; then
+        backup_if_present "${REPO_DIR}/.env"
+    fi
+    upsert_env_value "LAN_HOST_IP" "$HOST_IP"
+    upsert_env_value "SRS_HLS_BASE_URL" "http://${HOST_IP}:${NGINX_PORT}"
+    upsert_env_value "CORS_ORIGINS" "[\"http://${HOST_IP}:${FRONTEND_PORT}\", \"http://localhost:${FRONTEND_PORT}\"]"
+    echo "LAN_HOST_IP updated from '${existing_host:-not set}' to '${HOST_IP}'."
 }
 
 backup_if_present() {
@@ -181,6 +252,15 @@ while (($# > 0)); do
             CONFIGURE_UFW=1
             shift
             ;;
+        --no-ufw)
+            CONFIGURE_UFW=0
+            shift
+            ;;
+        --enable-ufw)
+            CONFIGURE_UFW=1
+            ENABLE_UFW=1
+            shift
+            ;;
         --skip-env)
             SKIP_ENV=1
             shift
@@ -202,6 +282,9 @@ command -v systemctl >/dev/null 2>&1 || die "systemctl is required"
 valid_port "$NGINX_PORT" || die "Invalid Nginx port: $NGINX_PORT"
 valid_port "$FRONTEND_PORT" || die "Invalid frontend port: $FRONTEND_PORT"
 if [[ -z "$HOST_IP" ]]; then
+    HOST_IP="$(read_env_value LAN_HOST_IP || true)"
+fi
+if [[ -z "$HOST_IP" ]]; then
     HOST_IP="$(detect_host_ip)"
 fi
 valid_ipv4 "$HOST_IP" || die "Invalid IPv4 address: $HOST_IP"
@@ -211,16 +294,7 @@ sudo apt-get update
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nginx
 
 if (( ! SKIP_ENV )); then
-    command -v python3 >/dev/null 2>&1 || die "python3 is required to update .env"
-    if [[ -f "${REPO_DIR}/scripts/setup_lan_network.py" ]]; then
-        python3 "${REPO_DIR}/scripts/setup_lan_network.py" \
-            --ip "$HOST_IP" \
-            --nginx-port "$NGINX_PORT" \
-            --frontend-port "$FRONTEND_PORT" \
-            --apply
-    else
-        echo "Warning: setup_lan_network.py not found; skipping .env update."
-    fi
+    update_env_for_host
 fi
 
 backup_if_present "$SITE_AVAILABLE"
@@ -238,10 +312,21 @@ sudo systemctl enable --now nginx
 sudo systemctl reload nginx
 
 if (( CONFIGURE_UFW )); then
-    command -v ufw >/dev/null 2>&1 || die "--configure-ufw requested but ufw is not installed"
+    if ! command -v ufw >/dev/null 2>&1; then
+        echo "UFW is not installed; installing it now..."
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ufw
+    fi
     sudo ufw allow "${SRS_RTMP_PORT}/tcp" comment 'Hominsu SRS RTMP ingest'
     sudo ufw allow "${NGINX_PORT}/tcp" comment 'Hominsu Nginx LAN proxy'
     echo "UFW rules added for TCP ${SRS_RTMP_PORT} and ${NGINX_PORT}."
+    if (( ENABLE_UFW )); then
+        sudo ufw allow OpenSSH
+        sudo ufw --force enable
+        echo "UFW enabled after allowing OpenSSH."
+    elif sudo ufw status | grep -qi "Status: inactive"; then
+        echo "UFW is installed but inactive. It was not enabled automatically; verify SSH access, then run:"
+        echo "  sudo ufw enable"
+    fi
 else
     echo "UFW was not changed. If enabled, allow TCP ${SRS_RTMP_PORT} and ${NGINX_PORT} from the LAN."
 fi
@@ -259,4 +344,3 @@ Nginx site:            ${SITE_AVAILABLE}
 
 Start FastAPI with --host 0.0.0.0 and keep SRS publishing port ${SRS_RTMP_PORT}.
 INFO
-

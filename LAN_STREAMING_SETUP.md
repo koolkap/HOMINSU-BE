@@ -53,6 +53,14 @@ the phone:
 python scripts\setup_lan_network.py --ip 192.168.1.25
 ```
 
+When running Ubuntu through WSL2, do not use the `172.24.x.x` address shown by `ip route`; that
+is normally the private WSL virtual adapter. Use the Windows Wi-Fi IPv4 address shown by
+`ipconfig` (the current helper can also read `ipconfig.exe` automatically):
+
+```bash
+bash scripts/install_nginx_ubuntu.sh --ip YOUR_WINDOWS_WIFI_IP --configure-ufw
+```
+
 The default command is a dry run. It prints the URLs but does not change files.
 
 ## 3. Configure LAN URLs and generate Nginx configuration
@@ -186,7 +194,8 @@ The installer:
 3. Backs up any existing Hominsu Nginx site and the Ubuntu default site.
 4. Copies the generated reverse-proxy site to `/etc/nginx/sites-available/hominsu.conf`.
 5. Enables it, validates it with `nginx -t`, and starts/reloads the Nginx systemd service.
-6. With `--configure-ufw`, allows only RTMP `1935` and the selected Nginx port through UFW.
+6. With `--configure-ufw`, installs UFW if needed and allows RTMP `1935` plus the selected Nginx
+   port through UFW. It does not enable UFW automatically, to avoid locking out SSH.
 
 The default external port is `8088`. To use standard HTTP port `80` instead:
 
@@ -216,6 +225,15 @@ If the installer reports an invalid Nginx configuration, inspect:
 ```bash
 sudo nginx -t
 sudo journalctl -u nginx -n 100 --no-pager
+```
+
+If the installer reports that UFW is inactive, verify that your SSH rule exists and then enable
+the firewall explicitly:
+
+```bash
+sudo ufw allow OpenSSH
+sudo ufw enable
+sudo ufw status verbose
 ```
 
 With the default Nginx port, the externally reachable URLs are:
