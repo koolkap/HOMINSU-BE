@@ -88,6 +88,27 @@ def detect_ipv4_addresses() -> list[str]:
     return candidates
 
 
+def detect_default_route_ipv4() -> str | None:
+    """Return the IPv4 address selected by the OS for the normal network route.
+
+    Windows often reports WSL/Docker adapters alongside the real Wi-Fi adapter.
+    A lexical/private-range sort cannot distinguish those virtual interfaces, but
+    a UDP socket connected to a non-routable address lets the OS reveal the local
+    address it would use for outbound traffic without sending any packet.
+    """
+    try:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            probe.connect(("192.0.2.1", 80))
+            value = probe.getsockname()[0]
+        finally:
+            probe.close()
+    except OSError:
+        return None
+
+    return value if is_usable_private_ipv4(value) else None
+
+
 def candidate_rank(value: str) -> tuple[int, str]:
     """Prefer common Wi-Fi/LAN ranges over Docker/WSL's 172.16/12 adapters."""
     address = ipaddress.ip_address(value)
@@ -115,7 +136,11 @@ def choose_ip(explicit_ip: str | None) -> str:
         print("Multiple private IPv4 addresses found:")
         for index, value in enumerate(candidates, start=1):
             print(f"  {index}. {value}")
-    selected = sorted(candidates, key=candidate_rank)[0]
+    # Prefer the adapter selected by the OS for the default route. This avoids
+    # choosing a WSL/Docker address such as 172.24.x.x over the reachable Wi-Fi
+    # address when both are private IPv4 candidates.
+    routed_ip = detect_default_route_ipv4()
+    selected = routed_ip if routed_ip in candidates else sorted(candidates, key=candidate_rank)[0]
     if len(candidates) > 1:
         print(f"Using {selected}. If this is not the Wi-Fi/LAN adapter, rerun with --ip.")
     return selected
