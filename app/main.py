@@ -58,10 +58,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+cors_origins = settings.cors_origins
+allow_all_origins = "*" in cors_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=True,
+    allow_origins=["*"] if allow_all_origins else cors_origins,
+    # Browsers reject `Access-Control-Allow-Origin: *` when credentials are enabled.
+    # The frontend uses Bearer tokens; exact origins should be configured in production.
+    allow_credentials=not allow_all_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

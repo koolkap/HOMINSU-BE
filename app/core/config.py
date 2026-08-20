@@ -1,3 +1,4 @@
+import json
 from functools import lru_cache
 
 from pydantic import field_validator
@@ -38,7 +39,32 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
 
     # --- CORS ---
-    CORS_ORIGINS: list[str] = ["*"]
+    # JSON array (recommended) or comma-separated origins. Example:
+    # ["https://hominsu-fe.example.com", "http://localhost:3000"]
+    CORS_ORIGINS: str = '["http://localhost:3000"]'
+
+    @property
+    def cors_origins(self) -> list[str]:
+        """Return normalized browser origins for FastAPI's CORS middleware."""
+        raw = self.CORS_ORIGINS.strip()
+        if not raw:
+            return []
+
+        if raw.startswith("["):
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                raise ValueError("CORS_ORIGINS must be valid JSON or comma-separated origins") from exc
+        else:
+            parsed = raw.split(",")
+
+        if isinstance(parsed, str):
+            parsed = [parsed]
+        if not isinstance(parsed, list) or not all(isinstance(origin, str) for origin in parsed):
+            raise ValueError("CORS_ORIGINS must be a list of origin strings")
+
+        origins = [origin.strip().rstrip("/") for origin in parsed if origin.strip()]
+        return ["*"] if "*" in origins else origins
 
     # --- SRS Media Server ---
     SRS_HLS_BASE_URL: str = "http://localhost:8080"
