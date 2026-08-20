@@ -168,6 +168,56 @@ python scripts\setup_lan_network.py `
   --start-nginx
 ```
 
+### Ubuntu installation script
+
+On the Ubuntu server, run the installer as a normal user with `sudo` permission from the
+repository root. Do not run the whole script with `sudo`; it invokes `sudo` only for apt/system
+configuration and keeps the repository `.env` owned by your user:
+
+```bash
+chmod +x scripts/install_nginx_ubuntu.sh
+bash scripts/install_nginx_ubuntu.sh --ip 192.168.1.25 --configure-ufw
+```
+
+The installer:
+
+1. Installs Nginx with `apt-get`.
+2. Updates `.env` through `setup_lan_network.py`, including `SRS_HLS_BASE_URL`.
+3. Backs up any existing Hominsu Nginx site and the Ubuntu default site.
+4. Copies the generated reverse-proxy site to `/etc/nginx/sites-available/hominsu.conf`.
+5. Enables it, validates it with `nginx -t`, and starts/reloads the Nginx systemd service.
+6. With `--configure-ufw`, allows only RTMP `1935` and the selected Nginx port through UFW.
+
+The default external port is `8088`. To use standard HTTP port `80` instead:
+
+```bash
+bash scripts/install_nginx_ubuntu.sh \
+  --ip 192.168.1.25 \
+  --nginx-port 80 \
+  --configure-ufw
+```
+
+If `.env` is managed by another deployment system, prevent this script from editing it:
+
+```bash
+bash scripts/install_nginx_ubuntu.sh --ip 192.168.1.25 --skip-env
+```
+
+The installer does not start FastAPI, PostgreSQL, or SRS. Start those services separately, then
+verify Nginx:
+
+```bash
+sudo systemctl status nginx --no-pager
+curl --fail http://192.168.1.25:8088/health
+```
+
+If the installer reports an invalid Nginx configuration, inspect:
+
+```bash
+sudo nginx -t
+sudo journalctl -u nginx -n 100 --no-pager
+```
+
 With the default Nginx port, the externally reachable URLs are:
 
 ```text
@@ -307,4 +357,3 @@ not fully authenticated, and the social-login route trusts client-supplied ident
 port-forward RTMP, HLS, FastAPI, or Nginx directly to the public Internet. Before production, add
 TLS/reverse-proxy policy, authenticated WebSockets, signed SRS webhooks, verified social tokens,
 rate limiting, and the concurrency fixes documented in `EXECUTION.md`.
-
