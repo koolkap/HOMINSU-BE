@@ -28,7 +28,10 @@ def database_url_without_libpq_sslmode() -> tuple[str, dict[str, object]]:
     if sslmode:
         connect_args["ssl"] = sslmode
         database_url = database_url.difference_update_query(["sslmode"])
-    return str(database_url), connect_args
+    # SQLAlchemy masks passwords when URL objects are converted with str().
+    # Alembic needs the unmasked value internally to establish the connection;
+    # it is never logged or printed here.
+    return database_url.render_as_string(hide_password=False), connect_args
 
 
 def run_migrations_offline() -> None:

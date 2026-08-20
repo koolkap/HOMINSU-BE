@@ -19,13 +19,13 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     content_type = postgresql.ENUM(
-        "VOD", "LIVE_360", "SHORT_FORM", name="content_type"
+        "VOD", "LIVE_360", "SHORT_FORM", name="content_type", create_type=False
     )
     device_status = postgresql.ENUM(
-        "ONLINE", "OFFLINE", "MAINTENANCE", name="device_status"
+        "ONLINE", "OFFLINE", "MAINTENANCE", name="device_status", create_type=False
     )
     transaction_type = postgresql.ENUM(
-        "RECHARGE", "SPEND", "BONUS", name="transaction_type"
+        "RECHARGE", "SPEND", "BONUS", name="transaction_type", create_type=False
     )
 
     bind = op.get_bind()

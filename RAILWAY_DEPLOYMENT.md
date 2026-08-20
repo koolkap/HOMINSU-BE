@@ -32,6 +32,9 @@ Dockerfile
 Dockerfile.srs
 srs.railway.conf.template
 scripts/start_srs_railway.sh
+alembic.ini
+alembic/env.py
+alembic/versions/0001_initial_schema.py
 railway.backend.toml
 railway.srs.toml
 ```
@@ -72,6 +75,7 @@ the equivalent values manually:
 
 ```text
 Dockerfile: Dockerfile
+Pre-deploy command: python -m alembic upgrade head
 Healthcheck path: /health
 Restart policy: Always
 ```
@@ -124,6 +128,30 @@ CORS_ORIGINS=["*"]
 ```
 
 Replace it before production browser use.
+
+The Backend service runs the first migration before the deployment becomes
+healthy:
+
+```text
+python -m alembic upgrade head
+```
+
+To check the revision from a local shell, first set `DATABASE_URL` to the
+Supabase Connect URI in a local ignored `.env` file, then run:
+
+```powershell
+python -m alembic current
+python -m alembic upgrade head
+python -m alembic current
+```
+
+The final command should report:
+
+```text
+0001_initial_schema (head)
+```
+
+Do not run this against `localhost` when you intend to migrate Supabase.
 
 These variables are loaded into the backend settings. They do not by
 themselves switch the current `/auth/social-login` endpoint to Supabase Auth;
@@ -301,9 +329,9 @@ uses the SRS public HTTPS domain in `SRS_HLS_BASE_URL`.
 ### Backend fails during startup
 
 Check that `DATABASE_URL` is the Supabase Connect **Session pooler** PostgreSQL
-URI and that its password is correct. The current backend creates missing
-tables on startup for this codebase; no first local migration command is
-required for the initial Supabase database.
+URI and that its password is correct. In production, Alembic creates the
+schema before FastAPI starts. Local development retains `create_all()` when
+`DEBUG=true`.
 
 ## Railway variable summary
 
