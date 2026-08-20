@@ -32,7 +32,7 @@ The checked-in service currently provides:
 | **P1** | There is no application-level heartbeat timeout, command acknowledgement, or reconnect backoff protocol. | Half-open sockets and undelivered commands can look healthy; synchronized playback cannot be confirmed. | Add server/device ping-pong and a heartbeat deadline, exponential reconnect backoff, command IDs, device ACKs, expiry timestamps, and retry/dead-letter handling. |
 | **P1** | A purchase can be repeated and the point deduction has no idempotency key or entitlement table. | Retries or repeated unlock requests can charge a user more than once for the same content. | Add `idempotency_key`, a unique purchase/entitlement record per user/content, and an atomic “already unlocked” check. |
 | **P1** | The requested 15-second preview lock and ad-reward flow are not represented in the current models or routes; `/me` also returns the schema default for `subscription_tier` rather than a persisted tier. | The paywall can be bypassed or cannot reliably grant an ad reward/subscription benefit. | Add preview-session state, verified ad-reward callbacks, entitlements/subscription fields, and enforce playback authorization at the media-token or playback API boundary. |
-| **P1** | Alembic is listed as a dependency, but this repository has no `alembic.ini`, migration environment, or `versions/` chain. | A production deployment cannot reproduce or upgrade the schema safely. | Add and review an initial Alembic revision, run `alembic upgrade head` in deployment, and stop using `create_all` outside local development. |
+| **P1** | The production database needs a versioned schema workflow. | Untracked schema changes can make Railway and Supabase environments diverge. | Use the checked-in Supabase CLI migration under `supabase/migrations/` and run `supabase db push` before deployment. |
 | **P2** | Operator broadcasts are sent sequentially, and there is no bounded queue or timeout. | One slow socket can delay telemetry to every other operator. | Send concurrently with per-socket timeouts, remove failed sockets, and use bounded queues for high-rate telemetry. |
 | **P2** | `/health` does not check database or SRS readiness. | A process can report healthy while dependencies are unavailable. | Split liveness and readiness checks and include database connectivity and SRS API reachability in readiness. |
 | **P2** | The local default enables `DEBUG` and contains a fallback secret. | Debug seeding and a known JWT secret are unsafe if deployed accidentally. | Require an explicit environment, fail startup when the default secret is used outside local development, and disable demo seeding in staging/production. |
@@ -212,18 +212,23 @@ operation can be run explicitly after PostgreSQL is ready:
 python -c "import asyncio; from app.core.database import init_db; asyncio.run(init_db())"
 ```
 
-The current repository does **not** contain `alembic.ini`, `alembic/env.py`, or an Alembic
-`versions/` directory. Alembic is installed in `requirements.txt`, but there is no migration
-chain to execute yet. This is an audit finding, not a command that should silently be assumed to
-work. The required production deployment command, once the initial revision is checked in, is:
+The repository contains a checked-in Supabase CLI migration at:
 
 ```bash
-alembic upgrade head
+supabase/migrations/20260820075003_new-migration.sql
 ```
 
-Until that migration chain exists, use `init_db` for local development only and treat schema
-creation as a production release blocker. Do not combine `create_all` and migrations in a
-production deployment without an explicit ownership policy.
+Apply it to the linked Supabase project from the repository root with:
+
+```bash
+supabase link --project-ref <PROJECT_REF>
+supabase db push --linked
+supabase migration list --linked
+```
+
+Supabase CLI is the production schema source of truth. `create_all()` is retained only for local
+development when `DEBUG=true`; do not run both migration systems against the same production
+database.
 
 ## Step 3: Start FastAPI
 
@@ -555,7 +560,7 @@ Before deploying this service for real users or paid content:
 - [ ] Add Redis Pub/Sub or a dedicated WebSocket gateway for multi-worker/multi-replica operation.
 - [ ] Make reconnect cleanup connection-identity aware; add heartbeat deadlines and command ACKs.
 - [ ] Authenticate and strictly validate SRS hooks; reconcile stale live streams.
-- [ ] Check in an initial Alembic migration and run `alembic upgrade head` during deployment.
+- [ ] Apply the checked-in Supabase migration with `supabase db push` and verify `supabase migration list`.
 - [ ] Disable `DEBUG`, demo seeding, wildcard CORS, and default secrets.
 - [ ] Add database/SRS readiness probes, structured logs, metrics, tracing, and alerting.
 - [ ] Put FastAPI, SRS HTTP endpoints, HLS, and WebSockets behind the intended TLS/reverse-proxy policy.

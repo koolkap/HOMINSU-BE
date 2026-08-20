@@ -10,7 +10,7 @@ enterprise VR headset fleet-management platform.
 | Language / Framework | Python 3.11+, FastAPI (async) |
 | ASGI Server | Uvicorn |
 | Database | PostgreSQL 17 (local install; Docker compose file also provided) |
-| ORM | SQLAlchemy 2 (async) + Alembic (available; dev uses `create_all`) |
+| ORM | SQLAlchemy 2 (async); Supabase CLI migrations for production |
 | Real-time | Native WebSockets (`python-socketio` available as an alternative) |
 | Media Server | Simple Realtime Server (SRS v5, Docker) — RTMP ingest → HLS |
 | Auth | JWT (python-jose) + Passlib/bcrypt |
@@ -139,8 +139,9 @@ Operators also receive `device_connected` / `device_disconnected` / `telemetry` 
 
 ## Notes
 
-- Tables are created via `Base.metadata.create_all()` on startup for local development;
-  Alembic migrations should be introduced before production use.
+- Tables are created via `Base.metadata.create_all()` only for local development;
+  production schema changes are checked in under `supabase/migrations/` and applied with
+  `supabase db push`.
 - SRS reaches the API at `host.docker.internal:8000` (works with Docker Desktop; the compose file
   also adds the `host-gateway` mapping for Linux hosts).
 - Change `SECRET_KEY` (and DB credentials) via `.env` before any real deployment.
